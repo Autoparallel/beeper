@@ -1,0 +1,25 @@
+[package]
+name = "beeper"
+version = "0.1.0"
+authors = ["Colin Roberts <colin@autoparallel.xyz>"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[profile.release]
+debug = true
+
+[dependencies]
+esp32c6-hal = "0.8.0"
+esp-backtrace = { version = "0.11.0", features = [
+    "esp32c6",
+    "panic-handler",
+    "exception-handler",
+    "println",
+] }
+esp-println = { version = "0.9.0", default-features = false, features = [
+    "esp32c6",
+    "critical-section",
+    "colors",
+    "jtag-serial",
+    "log",
+] }
