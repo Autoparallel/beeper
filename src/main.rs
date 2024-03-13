@@ -2,10 +2,14 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 #![feature(generic_arg_infer)]
+#![feature(allocator_api)]
 
+use core::mem::MaybeUninit;
+extern crate alloc;
+use alloc::vec::Vec;
 use embassy_executor::Spawner;
-use embassy_futures::select::{select3, select_array, Either3};
-use embassy_time::{Duration, Timer};
+use embassy_futures::select::{select3, Either3};
+use embassy_time::Timer;
 use embedded_hal_async::digital::Wait;
 use esp32c6_hal::{
     clock::ClockControl,
@@ -16,8 +20,12 @@ use esp32c6_hal::{
     timer::TimerGroup,
     IO,
 };
+use esp_alloc::EspHeap;
 use esp_backtrace as _;
 use esp_println::println;
+
+#[global_allocator]
+static ALLOCATOR: EspHeap = EspHeap::empty();
 
 enum Color {
     Green,
@@ -26,9 +34,9 @@ enum Color {
 }
 
 struct InputButtons {
-    green: GpioPin<Input<PullDown>, 1>,
-    blue: GpioPin<Input<PullDown>, 8>,
-    white: GpioPin<Input<PullDown>, 2>,
+    green: GpioPin<Input<PullDown>, 4>,
+    blue: GpioPin<Input<PullDown>, 1>,
+    white: GpioPin<Input<PullDown>, 10>,
 }
 
 impl InputButtons {
@@ -47,12 +55,6 @@ impl InputButtons {
     }
 }
 
-struct OutputLeds {
-    green: GpioPin<Output<PushPull>, 18>,
-    blue: GpioPin<Output<PushPull>, 19>,
-    white: GpioPin<Output<PushPull>, 20>,
-}
-
 #[main]
 async fn main(spawner: Spawner) -> ! {
     let peripherals = Peripherals::take();
@@ -66,14 +68,9 @@ async fn main(spawner: Spawner) -> ! {
     // Set up the io
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
     let mut input = InputButtons {
-        green: io.pins.gpio1.into_pull_down_input(),
-        blue: io.pins.gpio8.into_pull_down_input(),
-        white: io.pins.gpio2.into_pull_down_input(),
-    };
-    let mut output = OutputLeds {
-        green: io.pins.gpio18.into_push_pull_output(),
-        blue: io.pins.gpio19.into_push_pull_output(),
-        white: io.pins.gpio20.into_push_pull_output(),
+        green: io.pins.gpio4.into_pull_down_input(),
+        blue: io.pins.gpio1.into_pull_down_input(),
+        white: io.pins.gpio10.into_pull_down_input(),
     };
 
     // Set up a blinky task
@@ -81,29 +78,30 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(blinky(blinky_led)).unwrap();
 
     // The main loop
+    const HEAP_SIZE: usize = 32 * 1024;
+    static mut HEAP: MaybeUninit<[u8; HEAP_SIZE]> = MaybeUninit::uninit();
+    unsafe { ALLOCATOR.init(HEAP.as_mut_ptr() as *mut u8, 1024) };
+    // let mut message = Vec::with_capacity_in(1024, ALLOCATOR);
+    let mut message = Vec::new();
     loop {
         println!("Waiting for button press...");
         let color = input.get_input().await;
-        Timer::after_millis(200).await;
+        Timer::after_millis(300).await;
         println!("Button pressed!");
         match color {
             Color::Green => {
                 println!("Green button pressed!");
-                output.green.set_high().unwrap();
-                Timer::after(Duration::from_secs(2)).await;
-                output.green.set_low().unwrap();
+                println!("Message: {:?}", message);
+                message.clear();
+                println!("Message cleared.")
             }
             Color::Blue => {
                 println!("Blue button pressed!");
-                output.blue.set_high().unwrap();
-                Timer::after(Duration::from_secs(2)).await;
-                output.blue.set_low().unwrap();
+                message.push(true)
             }
             Color::White => {
                 println!("White button pressed!");
-                output.white.set_high().unwrap();
-                Timer::after(Duration::from_secs(2)).await;
-                output.white.set_low().unwrap();
+                message.push(false);
             }
         }
     }
